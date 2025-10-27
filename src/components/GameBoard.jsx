@@ -1,19 +1,70 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { SkipForward, CheckCircle2, Volume2, RotateCcw, Sparkles } from 'lucide-react';
+import { SkipForward, Volume2, RotateCcw, Sparkles } from 'lucide-react';
 import ControlsHint from './ControlsHint';
 
-const CHALLENGES = [
-  { type: 'quiz', prompt: 'Which is heavier: 1 kg of cotton or 1 kg of iron?' },
-  { type: 'quiz', prompt: 'If a plane crashes on the border of two countries, where do they bury the survivors?' },
-  { type: 'word', prompt: 'Name 3 fruits that are yellow.' },
-  { type: 'word', prompt: 'Say 3 animals that live in water.' },
-  { type: 'puzzle', prompt: 'Riddle: What has keys but can’t open locks?' },
-  { type: 'puzzle', prompt: 'Pattern: What comes next? 2, 4, 8, 16, __' },
-  { type: 'dare', prompt: 'Funny Dare: Say the alphabet backward!' },
-  { type: 'dare', prompt: 'Funny Dare: Do 5 jumping jacks and smile!' },
-  { type: 'memory', prompt: 'Memory: Remember 7, 3, 1, 9 — repeat it now!' },
-  { type: 'memory', prompt: 'Memory: Banana, Rocket, Cloud — recall in order!' },
+// Multiple-choice questions with options and the index of the correct option
+const QUESTIONS = [
+  {
+    type: 'quiz',
+    prompt: 'Which is heavier: 1 kg of cotton or 1 kg of iron?',
+    options: ['1 kg cotton', '1 kg iron', 'Both weigh the same', 'Depends on volume'],
+    answer: 2,
+  },
+  {
+    type: 'quiz',
+    prompt: 'If a plane crashes on the border of two countries, where do they bury the survivors?',
+    options: ['In country A', 'In country B', 'Nowhere, you don\'t bury survivors', 'At sea'],
+    answer: 2,
+  },
+  {
+    type: 'puzzle',
+    prompt: 'Riddle: What has keys but can’t open locks?',
+    options: ['Map', 'Keyboard', 'Piano', 'Calculator'],
+    answer: 2, // Piano
+  },
+  {
+    type: 'puzzle',
+    prompt: 'Pattern: What comes next? 2, 4, 8, 16, __',
+    options: ['18', '20', '24', '32'],
+    answer: 3,
+  },
+  {
+    type: 'memory',
+    prompt: 'Remember: 7, 3, 1, 9 — Which number was second?',
+    options: ['7', '3', '1', '9'],
+    answer: 1,
+  },
+  {
+    type: 'memory',
+    prompt: 'Sequence: Banana, Rocket, Cloud — What was first?',
+    options: ['Banana', 'Rocket', 'Cloud', 'None'],
+    answer: 0,
+  },
+  {
+    type: 'word',
+    prompt: 'Which of these is NOT a fruit?',
+    options: ['Mango', 'Tomato', 'Cucumber', 'Banana'],
+    answer: 2,
+  },
+  {
+    type: 'word',
+    prompt: 'Pick the odd one out',
+    options: ['Square', 'Triangle', 'Circle', 'Cube'],
+    answer: 3,
+  },
+  {
+    type: 'dare',
+    prompt: 'Quick pick: Which emoji best represents "victory"?',
+    options: ['🎉', '🏆', '😜', '🌧️'],
+    answer: 1,
+  },
+  {
+    type: 'quiz',
+    prompt: 'How many seconds are in half a minute?',
+    options: ['15', '20', '30', '60'],
+    answer: 2,
+  },
 ];
 
 function useBeep() {
@@ -52,27 +103,45 @@ export default function GameBoard({ onExit, onSaveScore }) {
   const [score, setScore] = useState(0);
   const [time, setTime] = useState(30);
   const [running, setRunning] = useState(false);
-  const [current, setCurrent] = useState(null);
+  const [currentIndex, setCurrentIndex] = useState(null);
   const [result, setResult] = useState(null); // 'win' | 'lose' | null
   const [soundOn, setSoundOn] = useState(true);
+  const [used, setUsed] = useState(new Set());
+  const [selected, setSelected] = useState(null);
 
   const { success, tick, buzzer } = useBeep();
 
-  const pickChallenge = useCallback(() => {
-    const idx = Math.floor(Math.random() * CHALLENGES.length);
-    setCurrent({ ...CHALLENGES[idx], id: crypto.randomUUID() });
+  const pickQuestion = useCallback(() => {
+    // Choose a random unused question; if all used, reset the set
+    setUsed((prev) => {
+      let available = [];
+      for (let i = 0; i < QUESTIONS.length; i++) {
+        if (!prev.has(i)) available.push(i);
+      }
+      let nextSet = new Set(prev);
+      if (available.length === 0) {
+        // reset to allow fresh cycle
+        nextSet = new Set();
+        available = QUESTIONS.map((_, i) => i);
+      }
+      const idx = available[Math.floor(Math.random() * available.length)];
+      nextSet.add(idx);
+      setCurrentIndex(idx);
+      return nextSet;
+    });
   }, []);
 
   const restartTimer = useCallback(() => {
     setTime(30);
     setRunning(true);
     setResult(null);
+    setSelected(null);
   }, []);
 
   const startRound = useCallback(() => {
-    pickChallenge();
+    pickQuestion();
     restartTimer();
-  }, [pickChallenge, restartTimer]);
+  }, [pickQuestion, restartTimer]);
 
   useEffect(() => {
     startRound();
@@ -98,11 +167,8 @@ export default function GameBoard({ onExit, onSaveScore }) {
     const onKey = (e) => {
       if (e.repeat) return;
       const k = e.key.toLowerCase();
-      if (k === ' ') {
-        e.preventDefault();
-        handleWin();
-      } else if (k === 's') {
-        skipChallenge();
+      if (k === 's') {
+        skipQuestion();
       } else if (k === 'n') {
         if (!running) startRound();
       } else if (k === 'r') {
@@ -115,16 +181,24 @@ export default function GameBoard({ onExit, onSaveScore }) {
     return () => window.removeEventListener('keydown', onKey);
   }, [running, startRound]);
 
-  const handleWin = () => {
+  const handleSelect = (i) => {
     if (!running) return;
+    setSelected(i);
+    const q = QUESTIONS[currentIndex];
+    const correct = i === q.answer;
     setRunning(false);
-    setScore((s) => s + 10);
-    setResult('win');
-    soundOn && success();
+    if (correct) {
+      setScore((s) => s + 10);
+      setResult('win');
+      soundOn && success();
+    } else {
+      setResult('lose');
+      soundOn && buzzer();
+    }
   };
 
-  const skipChallenge = () => {
-    pickChallenge();
+  const skipQuestion = () => {
+    pickQuestion();
     restartTimer();
   };
 
@@ -143,8 +217,11 @@ export default function GameBoard({ onExit, onSaveScore }) {
   const resetGame = () => {
     setScore(0);
     setResult(null);
+    setUsed(new Set());
     startRound();
   };
+
+  const q = currentIndex != null ? QUESTIONS[currentIndex] : null;
 
   const progress = useMemo(() => time / 30, [time]);
   const circumference = 2 * Math.PI * 60;
@@ -153,7 +230,7 @@ export default function GameBoard({ onExit, onSaveScore }) {
   const timeColor = time <= 5 ? '#ef4444' : '#facc15';
 
   const reaction = useMemo(() => {
-    switch (current?.type) {
+    switch (q?.type) {
       case 'quiz':
         return '🧠';
       case 'word':
@@ -167,7 +244,7 @@ export default function GameBoard({ onExit, onSaveScore }) {
       default:
         return '🎮';
     }
-  }, [current]);
+  }, [q]);
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-8">
@@ -223,23 +300,46 @@ export default function GameBoard({ onExit, onSaveScore }) {
           <p className="mb-3 text-sm uppercase tracking-widest text-white/70">Challenge</p>
           <AnimatePresence mode="wait">
             <motion.div
-              key={current?.id}
+              key={currentIndex}
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -10 }}
               className="text-2xl font-semibold"
             >
               <span className="mr-2 text-2xl">{reaction}</span>
-              {current?.prompt}
+              {q?.prompt}
             </motion.div>
           </AnimatePresence>
         </div>
 
+        <div className="mx-auto grid w-full max-w-2xl grid-cols-1 gap-3 sm:grid-cols-2">
+          {q?.options.map((opt, i) => {
+            const isCorrect = i === q.answer;
+            const chosenWrong = selected === i && selected !== q.answer && !running;
+            const chosenRight = selected === i && isCorrect && !running;
+            return (
+              <button
+                key={i}
+                onClick={() => handleSelect(i)}
+                disabled={!running}
+                className={`rounded-xl px-4 py-3 text-left font-medium ring-1 transition ${
+                  !running
+                    ? chosenRight
+                      ? 'bg-green-400 text-black ring-green-300'
+                      : chosenWrong
+                        ? 'bg-red-500 text-white ring-red-400'
+                        : 'bg-white/10 text-white ring-white/10'
+                    : 'bg-white/10 text-white hover:bg-white/20 ring-white/20'
+                }`}
+              >
+                {String.fromCharCode(65 + i)}. {opt}
+              </button>
+            );
+          })}
+        </div>
+
         <div className="flex flex-wrap items-center justify-center gap-3">
-          <button onClick={handleWin} disabled={!running} className="inline-flex items-center gap-2 rounded-full bg-green-500 px-5 py-3 font-semibold text-black shadow hover:bg-green-400 disabled:cursor-not-allowed disabled:opacity-60">
-            <CheckCircle2 className="h-5 w-5" /> I did it!
-          </button>
-          <button onClick={skipChallenge} className="inline-flex items-center gap-2 rounded-full bg-white/10 px-5 py-3 font-semibold text-white ring-1 ring-white/20 hover:bg-white/20">
+          <button onClick={skipQuestion} className="inline-flex items-center gap-2 rounded-full bg-white/10 px-5 py-3 font-semibold text-white ring-1 ring-white/20 hover:bg-white/20">
             <SkipForward className="h-5 w-5" /> Skip
           </button>
           {!running && (
@@ -258,7 +358,7 @@ export default function GameBoard({ onExit, onSaveScore }) {
               className="relative mx-auto w-full max-w-lg overflow-hidden rounded-2xl bg-white/10 p-4 text-center backdrop-blur ring-1 ring-white/20"
             >
               <div className="text-3xl">
-                {result === 'win' ? '🎉 You did it!' : '⏱️ Time\'s up!'}
+                {result === 'win' ? '🎉 Correct!' : "❌ That's not it"}
               </div>
               <div className="mt-2 text-white/80">{result === 'win' ? '+10 points' : 'No points this round'}</div>
               {result === 'win' && (
