@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { SkipForward, CheckCircle2, XCircle, Volume2, RotateCcw } from 'lucide-react';
+import { SkipForward, CheckCircle2, Volume2, RotateCcw, Sparkles } from 'lucide-react';
+import ControlsHint from './ControlsHint';
 
 const CHALLENGES = [
   { type: 'quiz', prompt: 'Which is heavier: 1 kg of cotton or 1 kg of iron?' },
@@ -74,7 +75,6 @@ export default function GameBoard({ onExit, onSaveScore }) {
   }, [pickChallenge, restartTimer]);
 
   useEffect(() => {
-    // start on mount
     startRound();
   }, [startRound]);
 
@@ -93,16 +93,34 @@ export default function GameBoard({ onExit, onSaveScore }) {
     return () => clearTimeout(id);
   }, [time, running, soundOn, tick, buzzer]);
 
+  // Keyboard shortcuts for fast interaction
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.repeat) return;
+      const k = e.key.toLowerCase();
+      if (k === ' ') {
+        e.preventDefault();
+        handleWin();
+      } else if (k === 's') {
+        skipChallenge();
+      } else if (k === 'n') {
+        if (!running) startRound();
+      } else if (k === 'r') {
+        resetGame();
+      } else if (k === 'm') {
+        setSoundOn((s) => !s);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [running, startRound]);
+
   const handleWin = () => {
     if (!running) return;
     setRunning(false);
     setScore((s) => s + 10);
     setResult('win');
     soundOn && success();
-  };
-
-  const nextChallenge = () => {
-    startRound();
   };
 
   const skipChallenge = () => {
@@ -132,6 +150,25 @@ export default function GameBoard({ onExit, onSaveScore }) {
   const circumference = 2 * Math.PI * 60;
   const dashoffset = circumference * (1 - progress);
 
+  const timeColor = time <= 5 ? '#ef4444' : '#facc15';
+
+  const reaction = useMemo(() => {
+    switch (current?.type) {
+      case 'quiz':
+        return '🧠';
+      case 'word':
+        return '🔤';
+      case 'puzzle':
+        return '🧩';
+      case 'dare':
+        return '😜';
+      case 'memory':
+        return '🧬';
+      default:
+        return '🎮';
+    }
+  }, [current]);
+
   return (
     <div className="mx-auto max-w-3xl px-4 py-8">
       <div className="mb-4 flex flex-col items-center justify-between gap-4 sm:flex-row">
@@ -151,30 +188,35 @@ export default function GameBoard({ onExit, onSaveScore }) {
           <button onClick={resetGame} className="inline-flex items-center gap-2 rounded-full bg-blue-600/90 px-4 py-2 text-white shadow hover:bg-blue-500">
             <RotateCcw className="h-4 w-4" /> Restart
           </button>
-          <button onClick={saveAndExit} className="rounded-full bg-white/10 px-4 py-2 text-white ring-1 ring-white/20 hover:bg-white/20">Save & Exit</button>
+          <button onClick={() => saveAndExit()} className="rounded-full bg-white/10 px-4 py-2 text-white ring-1 ring-white/20 hover:bg-white/20">Save & Exit</button>
         </div>
       </div>
 
       <div className="relative grid grid-cols-1 gap-6 rounded-2xl bg-gradient-to-br from-purple-900/40 via-blue-900/40 to-black/40 p-6 text-white ring-1 ring-white/10">
         <div className="mx-auto h-40 w-40">
-          <svg className="h-full w-full" viewBox="0 0 140 140">
+          <motion.svg
+            className="h-full w-full"
+            viewBox="0 0 140 140"
+            animate={time <= 5 ? { scale: [1, 1.05, 1], rotate: [0, -1.5, 1.5, 0] } : {}}
+            transition={{ duration: 0.9, repeat: time <= 5 ? Infinity : 0, ease: 'easeInOut' }}
+          >
             <circle cx="70" cy="70" r="60" stroke="#3b82f6" strokeWidth="12" fill="none" opacity="0.2" />
             <circle
               cx="70"
               cy="70"
               r="60"
-              stroke="#facc15"
+              stroke={timeColor}
               strokeWidth="12"
               fill="none"
               strokeDasharray={circumference}
               strokeDashoffset={dashoffset}
               strokeLinecap="round"
-              style={{ transition: 'stroke-dashoffset 1s linear' }}
+              style={{ transition: 'stroke-dashoffset 1s linear, stroke 0.2s ease' }}
             />
             <text x="50%" y="50%" textAnchor="middle" dominantBaseline="middle" fill="#fff" fontSize="28" fontWeight="700">
               {time}s
             </text>
-          </svg>
+          </motion.svg>
         </div>
 
         <div className="mx-auto max-w-xl text-center">
@@ -187,6 +229,7 @@ export default function GameBoard({ onExit, onSaveScore }) {
               exit={{ opacity: 0, y: -10 }}
               className="text-2xl font-semibold"
             >
+              <span className="mr-2 text-2xl">{reaction}</span>
               {current?.prompt}
             </motion.div>
           </AnimatePresence>
@@ -200,8 +243,8 @@ export default function GameBoard({ onExit, onSaveScore }) {
             <SkipForward className="h-5 w-5" /> Skip
           </button>
           {!running && (
-            <button onClick={nextChallenge} className="inline-flex items-center gap-2 rounded-full bg-yellow-400 px-5 py-3 font-semibold text-black shadow hover:bg-yellow-300">
-              Next
+            <button onClick={startRound} className="inline-flex items-center gap-2 rounded-full bg-yellow-400 px-5 py-3 font-semibold text-black shadow hover:bg-yellow-300">
+              <Sparkles className="h-5 w-5" /> Next
             </button>
           )}
         </div>
@@ -220,11 +263,11 @@ export default function GameBoard({ onExit, onSaveScore }) {
               <div className="mt-2 text-white/80">{result === 'win' ? '+10 points' : 'No points this round'}</div>
               {result === 'win' && (
                 <div className="pointer-events-none absolute inset-0">
-                  {[...Array(16)].map((_, i) => (
+                  {[...Array(20)].map((_, i) => (
                     <motion.span
                       key={i}
                       initial={{ opacity: 0, y: 0 }}
-                      animate={{ opacity: 1, y: -120 - Math.random() * 120, x: (Math.random() - 0.5) * 200, rotate: Math.random() * 360 }}
+                      animate={{ opacity: 1, y: -120 - Math.random() * 140, x: (Math.random() - 0.5) * 220, rotate: Math.random() * 360 }}
                       transition={{ duration: 1.2, delay: i * 0.03 }}
                       className="absolute left-1/2 top-1/2"
                     >
@@ -236,6 +279,7 @@ export default function GameBoard({ onExit, onSaveScore }) {
             </motion.div>
           )}
         </AnimatePresence>
+        <ControlsHint />
       </div>
     </div>
   );
